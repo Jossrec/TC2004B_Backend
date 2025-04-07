@@ -1,6 +1,8 @@
 import { sqlConnect, sql } from "../utils/sql.js";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+
+
 export const register = async (req, res) => {
     try {
         const pool = await sqlConnect();
