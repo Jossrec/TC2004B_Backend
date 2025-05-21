@@ -1,22 +1,22 @@
-import "dotenv/config";
+import "dotenv/config"
 import express from "express";
-import indexRoutes from "./routes/index.routes.js";
-import itemsRoutes from "./routes/items.routes.js";
-import items2Routes from "./routes/items2.routes.js";
-import loginRoutes from "./routes/login.routes.js";
-// import { connectDB } from "./utils/mongodb.js";
-import morgan from "morgan";
+import indexRouter from "./routes/index_router.js"
+import itemsRouter from "./routes/items.router.js"
+import loginRouter from "./routes/login.router.js"
 import cors from "cors";
+import morgan from "morgan";
 
 const app = express();
 
-// connectDB();
+//connectDB();
+
 app.use(cors());
 app.use(morgan("dev"));
 app.use(express.json());
-app.use(indexRoutes);
-app.use(itemsRoutes);
-// app.use(items2Routes);
-app.use(loginRoutes);
-app.listen(5000, console.log("http://localhost:5000"));
+app.use(indexRouter);
+app.use(itemsRouter);
+app.use(loginRouter);
 
+
+
+app.listen(5000, console.log("http://localhost:5000"));

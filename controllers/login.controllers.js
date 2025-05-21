@@ -1,108 +1,98 @@
-import { sqlConnect, sql } from "../utils/sql.js";
+import db from '../utils/firebase.js';
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 
-
-export const register = async (req, res) => {
-    try {
-        const pool = await sqlConnect();
-
-        // 1. Generar salt y hash
-        const salt = crypto.randomBytes(16).toString('base64url').slice(0, 16);
-        const newMsg = salt + req.body.password;
-        const hashing = crypto.createHash("sha512");
-        const hash = hashing.update(newMsg).digest("base64url");
-        const securedPassword = salt + hash;
-
-        // 2. Insertar en la tabla users con los campos nombre, username y password
-        await pool.request()
-            .input("nombre", sql.VarChar, req.body.nombre)
-            .input("username", sql.VarChar, req.body.username)
-            .input("password", sql.VarChar, securedPassword)
-            .query("INSERT INTO users (nombre, username, password) VALUES (@nombre, @username, @password)");
-
-        const data = await pool.request()
-            .input("username", sql.VarChar, req.body.username)
-            .query("SELECT * FROM users WHERE username = @username");
-
-        res.status(200).json({
-            operation: true,
-            message: "Usuario registrado correctamente",
-            item: data.recordset[0],
-        });
-    } catch (error) {
-        console.error("Error en register:", error);
-        res.status(500).json({
-            operation: false,
-            message: "Error al registrar usuario",
-            error: error.message,
-        });
-    }
-};
-
+const usersCollection = db.collection('users'); // Define the Firestore collection name for users
 
 export const login = async (req, res) => {
-    try {
-        const pool = await sqlConnect();
-        const data = await pool
-            .request()
-            .input("username", sql.VarChar, req.body.username)
-            .query("SELECT * FROM users WHERE username = @username");
+  try {
+    const snapshot = await usersCollection.where('username', '==', req.body.username).limit(1).get();
 
-        if (data.recordset.length === 0) {
-            return res.status(404).json({ isLogin: false, message: "Usuario no encontrado" });
-        }
-
-        const storedPassword = data.recordset[0].password;
-        const salt = storedPassword.slice(0, 16);
-        const newMsg = salt + req.body.password;
-        const hashing = crypto.createHash("sha512");
-        const hash = hashing.update(newMsg).digest("base64url");
-        const securedPassword = salt + hash;
-
-        const isLogin = storedPassword === securedPassword;
-
-        if (isLogin) {
-            const token = jwt.sign ({sub: data.recordset[0].id }, process.env.JWT, {expiresIn: "1h",})
-            res.status(200).json({ isLogin: true, user: data.recordset[0], token:token });
-        } else {
-            res.status(401).json({ isLogin: false, message: "Contraseña incorrecta" });
-        }
-    } catch (error) {
-        console.error("Error en login:", error);
-        res.status(500).json({
-            isLogin: false,
-            message: "Error durante el login",
-            error: error.message,
-        });
+    if (snapshot.empty) {
+      return res.status(400).json({ isLogin: false, user: {}, message: 'Invalid credentials' });
     }
+
+    const userDoc = snapshot.docs[0];
+    const userData = userDoc.data();
+    const salt = userData.password.slice(0, 12);
+    const newMsg = salt + req.body.password;
+    const hashing = crypto.createHash("sha512");
+    const hash = hashing.update(newMsg).digest("base64url");
+    const realpassword = salt + hash;
+
+    const isLogin = userData.password === realpassword;
+
+    if (isLogin) {
+      const token = jwt.sign({ sub: userDoc.id }, process.env.JWT, { expiresIn: '1h' });
+      res.status(200).json({ isLogin: isLogin, user: { id: userDoc.id, ...userData }, token: token });
+    } else {
+      res.status(400).json({ isLogin: isLogin, user: {}, message: 'Invalid password' });
+    }
+  } catch (error) {
+    console.error("Error during login:", error);
+    res.status(500).json({ error: 'Failed to login' });
+  }
 };
-export const updatePassword = async (req, res) => {
-    try {
-        const pool = await sqlConnect();
 
-        const salt = crypto.randomBytes(16).toString('base64url').slice(0, 16);
-        const newMsg = salt + req.body.password;
-        const hashing = crypto.createHash("sha512");
-        const hash = hashing.update(newMsg).digest("base64url");
-        const securedPassword = salt + hash;
+export const register = async (req, res) => {
+  try {
+    const { name, username, password } = req.body;
 
-        await pool.request()
-            .input("username", sql.VarChar, req.body.username)
-            .input("password", sql.VarChar, securedPassword)
-            .query("UPDATE users SET password = @password WHERE username = @username");
-
-        const data = await pool.request()
-            .input("username", sql.VarChar, req.body.username)
-            .query("SELECT * FROM users WHERE username = @username");
-
-        res.status(200).json({ operation: true, item: data.recordset[0] });
-    } catch (error) {
-        console.error("Error en updatePassword:", error);
-        res.status(500).json({
-            operation: false,
-            message: "Error al actualizar la contraseña",
-            error: error.message,
-        });
+    // Check if the username already exists
+    const existingUserSnapshot = await usersCollection.where('username', '==', username).get();
+    if (!existingUserSnapshot.empty) {
+      return res.status(409).json({ operation: false, message: 'Username already exists' });
     }
+
+    const salt = crypto.randomBytes(16).toString('base64url').slice(0, 12);
+    const newMsg = salt + password;
+    const hashing = crypto.createHash("sha512");
+    const hash = hashing.update(newMsg).digest("base64url");
+    const realpassword = salt + hash;
+
+    const newUser = {
+      name: name,
+      username: username,
+      password: realpassword
+    };
+
+    const docRef = await usersCollection.add(newUser);
+    const userSnapshot = await docRef.get();
+    const registeredUser = { id: userSnapshot.id, ...userSnapshot.data() };
+
+    res.status(200).json({ operation: true, item: [registeredUser] });
+  } catch (error) {
+    console.error("Error during registration:", error);
+    res.status(500).json({ operation: false, error: 'Failed to register user' });
+  }
+};
+
+export const putlogin = async (req, res) => {
+  try {
+    const { username } = req.body;
+    const { password } = req.params;
+
+    const salt = crypto.randomBytes(16).toString('base64url').slice(0, 12);
+    const newMsg = salt + password;
+    const hashing = crypto.createHash("sha512");
+    const hash = hashing.update(newMsg).digest("base64url");
+    const realpassword = salt + hash;
+
+    const snapshot = await usersCollection.where('username', '==', username).limit(1).get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ operation: false, message: 'User not found' });
+    }
+
+    const userDoc = snapshot.docs[0].ref;
+    await userDoc.update({ password: realpassword });
+
+    const updatedUserSnapshot = await userDoc.get();
+    const updatedUserData = { id: updatedUserSnapshot.id, ...updatedUserSnapshot.data() };
+
+    res.status(200).json({ operation: true, item: [updatedUserData] });
+  } catch (error) {
+    console.error("Error updating password:", error);
+    res.status(500).json({ operation: false, error: 'Failed to update password' });
+  }
 };
