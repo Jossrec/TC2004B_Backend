@@ -7,7 +7,6 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-  
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -21,3 +20,4 @@
     "jsonwebtoken": "^9.0.2"
   }
 }
+
